@@ -1,0 +1,35 @@
+name: p05-pr-isolation
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Context
+        run: |
+          echo "repo=${GITHUB_REPOSITORY}"
+          echo "event=${GITHUB_EVENT_NAME}"
+          echo "head_ref=${GITHUB_HEAD_REF}"
+          echo "base_ref=${GITHUB_BASE_REF}"
+          echo "actor=${GITHUB_ACTOR}"
+      - name: Token read
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}" --jq '.full_name' && echo "READ_OK" || echo "READ_DENIED"
+      - name: Token write
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUM}/comments" -f body="p05 token write test ${GITHUB_RUN_ID}" && echo "WRITE_OK" || echo "WRITE_DENIED"
+      - name: OIDC claims
+        run: |
+          RESP=$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=p05-test")
+          TOKEN=$(echo "$RESP" | jq -r '.value // empty')
+          if [ -z "$TOKEN" ]; then echo "OIDC_DENIED"; echo "$RESP" | head -c 300; exit 0; fi
+          echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq -c '{sub,repository,ref,event_name,repository_owner,aud}'
